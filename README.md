@@ -1,73 +1,166 @@
-# MercadoLibre Mobile Candidate
+# Planeta Noticias — MercadoLibre Mobile Challenge
 
-Aplicación desarrollada como parte del challenge técnico, consumiendo la API de **Space Flight News** para listar artículos, ver su detalle y navegar entre pantallas con estado persistente.
+App Android desarrollada como parte del challenge técnico, consumiendo la
+[Space Flight News API](https://api.spaceflightnewsapi.net/v4/docs/) para
+listar y explorar noticias de vuelos espaciales.
 
-## Objetivo
+## Alcance
 
-El foco principal de la implementación está en el módulo de **Reportes**.  
-Los módulos de **Articles** y **Blogs** se agregaron reutilizando la misma base de UI, estado y flujo de navegación, ya que las respuestas de la API eran equivalentes y quedaban fuera del scope principal del desafío. La intención fue mantener consistencia visual y de comportamiento sin duplicar lógica innecesaria.
+El módulo principal del desafío es **Reportes**. Los módulos de **Artículos**
+y **Blogs** se incluyeron reutilizando la misma base de UI, lógica de estado
+y flujo de navegación, dado que los endpoints de la API devuelven estructuras
+equivalentes. La decisión fue mostrar reutilización de componentes y
+consistencia de UX sin duplicar lógica.
 
-## Estructura del proyecto
+---
 
-### Raíz
-- `MainActivity.kt`: punto de entrada de la app.
-- `SpaceNewsApp.kt`: setup general de la aplicación.
+## Stack tecnológico
 
-### `data`
-Capa de datos, responsable del acceso a red, modelos y repositorios.
+| Capa | Tecnología |
+|---|---|
+| UI | Jetpack Compose + Material 3 |
+| Arquitectura | MVVM + Repository pattern |
+| Inyección de dependencias | Hilt |
+| Networking | Retrofit + OkHttp |
+| Imágenes | Coil |
+| Navegación | Custom state-based (ver decisiones) |
+| Async | Coroutines + StateFlow |
 
-- `models/`: modelos de dominio utilizados por la UI.
-- `remote/`: cliente web service, constantes y DTOs de respuesta.
-- `repository/`: abstracción y implementación del acceso a datos.
+---
 
-### `di`
-- Configuración de dependencias (networking)
+## Funcionalidades
 
-### `navigation`
-- Manejo de navegación interna de la app.
-- Estado de navegación por seccion y pantallas de detalle.
+- **Listado con paginación**: carga incremental de 10 artículos con infinite
+  scroll, activado al acercarse al final de la lista.
+- **Búsqueda con debounce**: el campo de búsqueda espera 500ms de inactividad
+  antes de lanzar la petición, evitando requests innecesarios.
+- **Shared element transitions**: la imagen del artículo se anima entre el
+  card en el listado y el header del detalle.
+- **Precarga de imagen**: al tocar un card se precarga la imagen antes de
+  navegar, eliminando el blink en la transición la primera vez.
+- **Estado persistente ante rotación**: posición de scroll, estado de búsqueda
+  y pestaña activa se preservan con `rememberSaveable` y `ViewModel`.
+- **WebView integrado**: el artículo completo se abre en un WebView interno
+  con indicador de progreso de carga.
+- **Redes sociales de autores**: se muestran hasta 3 badges directamente; el
+  resto se agrupa en un "+N" que abre un diálogo con la lista completa.
 
-### `ui`
-Contiene toda la interfaz de usuario.
+---
 
-- `articles/`: pantalla, estado y ViewModel de artículos.
-- `blogs/`: variante reutilizando la misma lógica base.
-- `reports/`: módulo principal del challenge.
-- `articledetail/`: detalle del artículo y visualización webview.
-- `components/`: componentes reutilizables de UI.
-- `theme/`: colores, tipografía y tema general.
+## Arquitectura
+UI (Compose) → ViewModel → Repository → Remote (Retrofit)
 
-## Decisiones de navegación
+- **UI**: pantallas y componentes declarativos, sin lógica de negocio.
+- **ViewModel**: expone `StateFlow` con estados sellados (`Loading`, `Success`,
+  `Error`). Gestiona paginación y búsqueda.
+- **Repository**: abstracción sobre el origen de datos; la implementación
+  maneja y loguea excepciones de red o HTTP antes de retornar un `Result`.
+- **Remote**: DTOs separados de los modelos de dominio; el mapeo ocurre en la
+  capa de datos, sin contaminar la UI.
 
-No se utilizó `Navigation Component` porque la navegación principal de la app se resolvió mejor con un enfoque completamente controlado desde Compose, permitiendo:
+---
 
-- mantener el estado de cada pestaña,
-- conservar la posición del scroll,
-- manejar transiciones animadas entre listado, detalle y web view,
-- simplificar la coordinación entre tabs sin perder estado al rotar la pantalla.
+## Navegación
 
-La navegación se implementó con `rememberSaveable`, `SharedTransitionLayout`, `AnimatedContent` y estados explícitos por sección.
+No se utilizó Navigation Component. La navegación se resolvió con un enfoque
+state-based controlado desde Compose, lo que permitió:
 
-## Estado y rotación
-Se usan `ViewModel`, `StateFlow`, `rememberSaveable` y `LazyListState` para preservar el comportamiento de la interfaz.
+- Mantener el estado de cada pestaña de forma independiente.
+- Conservar la posición del scroll al volver del detalle.
+- Coordinar `SharedTransitionLayout` con `AnimatedContent` para las
+  transiciones animadas entre pantallas.
+- Evitar serialización del modelo `Article` entre destinos (se pasa el objeto
+  directamente en memoria).
+
+Cada sección maneja su propio `ScreenNavState` (`List`, `Detail`, `Web`) y
+el `BackHandler` global despacha según la pestaña activa.
+
+---
+
+## Componentes destacados
+
+### `StarBackground`
+Fondo animado de 150 estrellas generadas con posiciones aleatorias usando
+`Canvas`. Las posiciones se calculan una sola vez con `remember` para no
+regenerarse en cada recomposición. Incluye una animación de "twinkle"
+preparada pero desactivada por ahora, que hace parpadear las estrellas con
+una transición infinita de alpha.
+
+### `HeaderSearch`
+Barra superior que alterna entre el título de la app y un campo de búsqueda
+con `AnimatedContent`. Al activarse, solicita el foco automáticamente con
+`FocusRequester`. Al cerrarse, limpia la query y dispara un nuevo fetch.
+
+### `ArticleList`
+Lista lazy con detección de scroll para paginación. Usa `derivedStateOf` para
+calcular si el último ítem visible está a 3 posiciones del final, minimizando
+recomposiciones. El spinner de carga aparece como ítem al final de la lista
+sin reemplazar el contenido existente.
+
+### `ArticleCard`
+Card con imagen superior y shared element transition coordinada con el detalle.
+Al hacer tap, encola la carga de la imagen con Coil antes de navegar, para que
+la transición animada no muestre un frame en blanco la primera vez.
+
+### `SocialMediaBadge` / `MoreSocialsBadge`
+El detalle del artículo muestra los perfiles sociales de los autores como
+badges circulares coloreados por red (X, YouTube, Instagram, LinkedIn,
+Mastodon, Bluesky). Si hay más de 3, el excedente se colapsa en un badge "+N"
+que abre un `AlertDialog` con la lista completa, cada ítem clickeable hacia
+el perfil externo.
+
+### `DetailWebViewScreen`
+WebView con `LinearProgressIndicator` que refleja el progreso real de carga
+de la página via `WebChromeClient.onProgressChanged`. El botón de back flota
+sobre el contenido con fondo semitransparente para mantener visibilidad
+independientemente del color de la página cargada.
+
+---
 
 ## Manejo de errores
 
-Se contemplan errores desde dos perspectivas:
+**Developer**
+- Errores de red y HTTP se capturan en el `Repository`, se loguean con
+  `Log.e` y se retornan como `Result.failure`.
+- El `ViewModel` convierte el `Throwable` en un mensaje legible para la UI,
+  manteniendo la separación de capas.
+- En `loadMore`, un fallo no borra la lista existente; se restaura el estado
+  anterior y se loguea silenciosamente.
 
-- **Developer**: estructura consistente, separación por capas y manejo explícito de fallos de red o HTTP.
-- **Usuario**: feedback visual mediante pantallas de error, loading y reintentos, evitando romper el flujo de navegación.
+**Usuario**
+- Estado `Loading` con indicador de progreso al inicio y entre páginas.
+- Estado `Error` con mensaje descriptivo y botón de reintento.
+- Imagen de placeholder y fallback en todos los `AsyncImage`.
+- El WebView muestra un `LinearProgressIndicator` mientras carga la página.
 
-## Arquitectura
+---
 
-La app sigue una arquitectura simple por capas:
+## Estructura del proyecto
 
-- **UI**: pantallas, componentes y estado visual.
-- **ViewModel**: lógica de presentación y manejo de estado.
-- **Repository**: acceso a datos.
-- **Remote/Data**: consumo de API y mapeo de respuestas.
+~~~~
+├── MainActivity.kt
+├── SpaceNewsApp.kt
+├── data/
+│   ├── models/          # Modelos de dominio
+│   ├── remote/          # WebService, DTOs, constantes
+│   └── repository/      # Interfaz e implementación
+├── di/                  # Módulo de red (Hilt)
+├── navigation/          # AppNavigation, ScreenNavState
+└── ui/
+    ├── articles/        # Pantalla, ViewModel, Estado
+    ├── blogs/
+    ├── reports/
+    ├── articledetail/   # Detalle + WebView
+    ├── components/      # Componentes reutilizables
+    └── theme/
+~~~~
 
-## Observación final
+---
 
-Aunque la app expone tres módulos visuales, el desarrollo está centrado en **Reports**, que representa el caso principal del desafío.  
-Los módulos restantes se incluyeron para mostrar reutilización de componentes, consistencia de UX y escalabilidad de la solución.
+## Nota sobre modelos compartidos
+
+`Blogs` y `Reports` reutilizan el modelo `Article` y el mismo `Repository`
+que `Articles`, ya que las respuestas de la API son estructuralmente idénticas.
+Lo correcto en un proyecto productivo sería tener modelos de dominio separados
+por entidad. Esto está documentado como deuda técnica en los comentarios del
+repositorio.
